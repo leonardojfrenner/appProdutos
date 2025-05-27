@@ -92,7 +92,7 @@ export async function updatePedidoStatusAndEndTime(pedidoId: string, newStatus: 
 export async function getPedidosPendentesFromDB(): Promise<PedidoCompleto[]> {
   try {
     const db = getDb(); // Use a instância já aberta do DB
-    const resultados = await db.getAllAsync(`SELECT * FROM pedidos WHERE status = 'pendente'`);
+    const resultados = await db.getAllAsync(`SELECT * FROM pedidos`);
 
     return resultados.map((row: any) => ({
       id: row.id,
@@ -102,13 +102,13 @@ export async function getPedidosPendentesFromDB(): Promise<PedidoCompleto[]> {
       quantidadePessoas: row.quantidadePessoas,
       status: row.status,
       valorTotal: row.valorTotal,
-      dataHora: row.dataHoraInicio, // Mapeia dataHoraInicio para dataHora
-      dataHoraFim: row.dataHoraFim,
-      itens: JSON.parse(row.itens), // Parse o JSON de volta para array de itens
+      dataHora: row.dataHoraInicio,
+      dataHoraFinalizacao: row.dataHoraFim,
+      itens: JSON.parse(row.itens),
     })) as PedidoCompleto[];
   } catch (error) {
-    console.error('Erro ao buscar pedidos pendentes do DB:', error);
-    Alert.alert('Erro', 'Falha ao carregar pedidos pendentes.');
+    console.error('Erro ao buscar pedidos do DB:', error);
+    Alert.alert('Erro', 'Falha ao carregar pedidos.');
     return [];
   }
 }

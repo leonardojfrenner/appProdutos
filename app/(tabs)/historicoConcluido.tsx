@@ -1,167 +1,180 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, SafeAreaView, TouchableOpacity } from 'react-native';
-import { useRouter } from 'expo-router';
 import { useCarrinho } from '../../context/CarrinhoContext';
-import { usePedidoInfo } from '../../context/pedidoInfoContext';
-import appStyles from '../../style/appStyles';
 import DetalhesPedidoModal from '../../comp/detalhesPedidoModal';
 
-const HistoricoConcluidoPage = () => {
-    const router = useRouter();
+export default function HistoricoConcluidoPage() {
     const { pedidosPendentes, carregarPedidosPendentes } = useCarrinho();
-    const { atendenteLogado } = usePedidoInfo();
     const [pedidosConcluidos, setPedidosConcluidos] = useState<any[]>([]);
     const [modalVisible, setModalVisible] = useState(false);
-    const [selectedPedido, setSelectedPedido] = useState<any>(null);
+    const [pedidoSelecionado, setPedidoSelecionado] = useState<any>(null);
 
     useEffect(() => {
-        carregarPedidosPendentes();
+        const carregarPedidos = async () => {
+            await carregarPedidosPendentes();
+        };
+        carregarPedidos();
     }, []);
 
     useEffect(() => {
-        // Filtra apenas os pedidos concluídos
+        // Filtra apenas os pedidos com status 'entregue'
         const concluidos = pedidosPendentes.filter(pedido => pedido.status === 'entregue');
-        setPedidosConcluidos(concluidos);
+        // Ordena por data de finalização, mais recente primeiro
+        const ordenados = concluidos.sort((a, b) => 
+            new Date(b.dataHoraFinalizacao).getTime() - new Date(a.dataHoraFinalizacao).getTime()
+        );
+        setPedidosConcluidos(ordenados);
     }, [pedidosPendentes]);
 
     const handlePedidoPress = (pedido: any) => {
-        setSelectedPedido(pedido);
+        setPedidoSelecionado(pedido);
         setModalVisible(true);
     };
 
     const renderPedido = ({ item }: { item: any }) => (
-        <TouchableOpacity 
-            style={styles.pedidoCard}
+        <TouchableOpacity
+            style={styles.card}
             onPress={() => handlePedidoPress(item)}
         >
-            <View style={styles.pedidoHeader}>
+            <View style={styles.cardHeader}>
                 <Text style={styles.mesaText}>Mesa {item.mesa}</Text>
-                <Text style={styles.dataText}>
-                    {new Date(item.dataHora).toLocaleString('pt-BR')}
+                <Text style={styles.horaText}>
+                    {new Date(item.dataHora).toLocaleTimeString('pt-BR', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    })}
                 </Text>
             </View>
 
-            <View style={styles.itensContainer}>
-                <Text style={styles.itensCount}>
+            <View style={styles.cardContent}>
+                <Text style={styles.infoText}>
                     {item.itens.length} {item.itens.length === 1 ? 'item' : 'itens'}
                 </Text>
+                <Text style={styles.valorText}>
+                    R$ {item.valorTotal.toFixed(2).replace('.', ',')}
+                </Text>
             </View>
 
-            <View style={styles.pedidoFooter}>
-                <Text style={styles.valorText}>
-                    Total: R$ {item.valorTotal.toFixed(2).replace('.', ',')}
-                </Text>
+            <View style={styles.cardFooter}>
                 <Text style={styles.atendenteText}>
                     Atendente: {item.nome_atendente}
+                </Text>
+                <Text style={styles.statusText}>
+                    Finalizado em: {new Date(item.dataHoraFinalizacao).toLocaleString('pt-BR')}
                 </Text>
             </View>
         </TouchableOpacity>
     );
 
     return (
-        <SafeAreaView style={appStyles.container}>
-            <View style={styles.headerContainer}>
-                <Text style={styles.pageTitle}>Histórico de Pedidos Concluídos</Text>
-            </View>
-
+        <SafeAreaView style={styles.container}>
+            <Text style={styles.title}>Histórico de Pedidos Concluídos</Text>
+            
             {pedidosConcluidos.length === 0 ? (
                 <View style={styles.emptyContainer}>
                     <Text style={styles.emptyText}>
-                        Nenhum pedido concluído encontrado.
+                        Nenhum pedido concluído encontrado
                     </Text>
                 </View>
             ) : (
                 <FlatList
                     data={pedidosConcluidos}
                     renderItem={renderPedido}
-                    keyExtractor={(item) => item.id}
-                    contentContainerStyle={styles.listContent}
+                    keyExtractor={(item) => item.id.toString()}
+                    contentContainerStyle={styles.listContainer}
                 />
             )}
 
             <DetalhesPedidoModal
                 visible={modalVisible}
                 onClose={() => setModalVisible(false)}
-                pedido={selectedPedido}
+                pedido={pedidoSelecionado}
                 modo="concluido"
             />
         </SafeAreaView>
     );
-};
+}
 
 const styles = StyleSheet.create({
-    headerContainer: {
-        padding: 16,
-        backgroundColor: '#fff',
-        borderBottomWidth: 1,
-        borderBottomColor: '#eee',
+    container: {
+        flex: 1,
+        backgroundColor: '#f5f5f5',
     },
-    pageTitle: {
+    title: {
         fontSize: 24,
         fontWeight: 'bold',
-    },
-    listContent: {
-        padding: 12,
-    },
-    pedidoCard: {
-        backgroundColor: '#fff',
-        borderRadius: 8,
+        color: '#333',
         padding: 16,
-        marginBottom: 12,
-        elevation: 2,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 2,
+        textAlign: 'center',
     },
-    pedidoHeader: {
+    listContainer: {
+        padding: 16,
+    },
+    card: {
+        backgroundColor: '#fff',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+    },
+    cardHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
+        alignItems: 'center',
         marginBottom: 8,
     },
     mesaText: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: 'bold',
         color: '#007AFF',
     },
-    dataText: {
-        fontSize: 14,
+    horaText: {
+        fontSize: 16,
         color: '#666',
     },
-    itensContainer: {
-        marginVertical: 8,
+    cardContent: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 8,
     },
-    itensCount: {
-        fontSize: 14,
-        color: '#666',
-    },
-    pedidoFooter: {
-        marginTop: 8,
-        paddingTop: 8,
-        borderTopWidth: 1,
-        borderTopColor: '#eee',
+    infoText: {
+        fontSize: 16,
+        color: '#333',
     },
     valorText: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: 'bold',
         color: '#28a745',
-        marginBottom: 4,
+    },
+    cardFooter: {
+        borderTopWidth: 1,
+        borderTopColor: '#eee',
+        paddingTop: 8,
     },
     atendenteText: {
         fontSize: 14,
         color: '#666',
+        marginBottom: 4,
+    },
+    statusText: {
+        fontSize: 14,
+        color: '#28a745',
+        fontWeight: '500',
     },
     emptyContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 20,
+        padding: 16,
     },
     emptyText: {
         fontSize: 16,
         color: '#666',
         textAlign: 'center',
     },
-});
-
-export default HistoricoConcluidoPage; 
+}); 

@@ -22,7 +22,7 @@ export default function Layout() {
                     text: "Sair",
                     onPress: async () => {
                         await limparAtendenteLogado();
-                        router.replace('/');
+                        router.push('/');
                     }
                 }
             ]
@@ -42,6 +42,13 @@ export default function Layout() {
                     backgroundColor: '#fff',
                     borderTopWidth: 1,
                     borderTopColor: '#eee',
+                },
+                headerStyle: {
+                    backgroundColor: '#fff',
+                },
+                headerTintColor: '#333',
+                headerTitleStyle: {
+                    fontWeight: 'bold',
                 },
                 headerRight: () => (
                     <View style={{ flexDirection: 'row', marginRight: 15 }}>
