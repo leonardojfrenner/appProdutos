@@ -49,17 +49,21 @@ interface CarrinhoProviderProps {
 export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) => {
     const [carrinho, setCarrinho] = useState<CarrinhoItem[]>([]);
     const [pedidosPendentes, setPedidosPendentes] = useState<PedidoCompleto[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
 
     // Função para carregar pedidos pendentes do SQLite para o estado do contexto
     const carregarPedidosPendentesDoDB = async () => {
+        if (isLoading) return; // Evita múltiplas chamadas simultâneas
+        
         try {
-            console.log("Tentando carregar pedidos pendentes do DB...");
+            setIsLoading(true);
             const pedidos = await getPedidosPendentesFromDB();
             setPedidosPendentes(pedidos);
-            console.log(`Pedidos pendentes carregados do DB: ${pedidos.length} pedidos.`);
         } catch (error) {
-            console.error("Erro ao carregar pedidos pendentes do DB para o contexto:", error);
+            console.error("Erro ao carregar pedidos pendentes do DB:", error);
             Alert.alert("Erro", "Não foi possível carregar os pedidos pendentes.");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -71,11 +75,9 @@ export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) 
                 if (carrinhoString) {
                     setCarrinho(JSON.parse(carrinhoString));
                 }
-                // Carregar pedidos pendentes do SQLite (fonte primária agora)
-                await carregarPedidosPendentesDoDB(); // Sempre carrega do DB
-
+                await carregarPedidosPendentesDoDB();
             } catch (e) {
-                console.error("Erro ao carregar dados do AsyncStorage/SQLite", e);
+                console.error("Erro ao carregar dados:", e);
                 Alert.alert("Erro", "Não foi possível carregar os dados salvos.");
             }
         };
@@ -88,30 +90,11 @@ export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) 
             try {
                 await AsyncStorage.setItem(CARRINHO_STORAGE_KEY, JSON.stringify(carrinho));
             } catch (e) {
-                console.error("Erro ao salvar carrinho no AsyncStorage", e);
+                console.error("Erro ao salvar carrinho:", e);
             }
         };
         salvarCarrinho();
     }, [carrinho]);
-
-    // O useEffect que salva pedidos pendentes no AsyncStorage pode ser removido
-    // se o DB é a fonte primária e o estado `pedidosPendentes` é sempre sincronizado com ele.
-    // Se você usa o DB como fonte única, não há necessidade de duplicar no AsyncStorage.
-    // Mas, se você quer um cache, pode manter. Para simplicidade e evitar inconsistências,
-    // eu recomendaria remover se o DB é a fonte da verdade.
-    /*
-    useEffect(() => {
-        const salvarPedidosPendentesNoAsyncStorage = async () => {
-            try {
-                await AsyncStorage.setItem(PEDIDOS_PENDENTES_STORAGE_KEY, JSON.stringify(pedidosPendentes));
-            } catch (e) {
-                console.error("Erro ao salvar pedidos pendentes no AsyncStorage", e);
-            }
-        };
-        salvarPedidosPendentesNoAsyncStorage();
-    }, [pedidosPendentes]);
-    */
-
 
     const adicionarAoCarrinho = (item: CarrinhoItem) => {
         setCarrinho(prevCarrinho => {
@@ -141,10 +124,12 @@ export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) 
     };
 
     const atualizarQuantidade = (itemId: number, itemType: 'pizza' | 'esfiha' | 'bebida', novaQuantidade: number) => {
+        if (novaQuantidade < 1) return;
+        
         setCarrinho(prevCarrinho =>
             prevCarrinho.map(item =>
                 (item.id === itemId && item.tipo === itemType)
-                    ? { ...item, quantidade: Math.max(1, novaQuantidade) }
+                    ? { ...item, quantidade: novaQuantidade }
                     : item
             )
         );
@@ -159,7 +144,10 @@ export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) 
     };
 
     const getPrecoTotal = () => {
-        return carrinho.reduce((total, item) => total + (item.precoUnitario * item.quantidade), 0);
+        return carrinho.reduce((total, item) => {
+            const precoItem = item.precoUnitario * item.quantidade;
+            return total + precoItem;
+        }, 0);
     };
 
     const finalizarPedido = async (dadosIniciaisPedido: Omit<PedidoCompleto, 'id' | 'valorTotal' | 'dataHora' | 'status' | 'itens'>): Promise<boolean> => {
@@ -179,16 +167,13 @@ export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) 
         };
 
         try {
-            await insertPedido(novoPedido); // SALVAR NO SQLITE
-            // Após salvar no DB, recarregamos a lista do DB para manter a sincronia
-            await carregarPedidosPendentesDoDB(); // <-- Recarrega do DB para atualizar o estado
+            await insertPedido(novoPedido);
+            await carregarPedidosPendentesDoDB();
             limparCarrinho();
-
-            Alert.alert("Sucesso", "Pedido adicionado ao histórico de pendentes.");
             return true;
         } catch (e) {
-            console.error("Erro ao finalizar e persistir pedido:", e);
-            Alert.alert("Erro", "Não foi possível finalizar e salvar o pedido.");
+            console.error("Erro ao finalizar pedido:", e);
+            Alert.alert("Erro", "Não foi possível finalizar o pedido.");
             return false;
         }
     };
@@ -196,17 +181,13 @@ export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) 
     const marcarPedidoComoEntregue = async (pedidoId: string) => {
         try {
             const dataHoraFim = new Date().toISOString();
-            await updatePedidoStatusAndEndTime(pedidoId, 'entregue', dataHoraFim); // Atualiza no DB
-
-            // Após atualizar no DB, recarregamos a lista para refletir a mudança
-            await carregarPedidosPendentesDoDB(); // <-- Recarrega do DB para atualizar o estado
-            Alert.alert("Sucesso", "Pedido marcado como entregue e removido do histórico.");
+            await updatePedidoStatusAndEndTime(pedidoId, 'entregue', dataHoraFim);
+            await carregarPedidosPendentesDoDB();
         } catch (error) {
             console.error("Erro ao marcar pedido como entregue:", error);
             Alert.alert("Erro", "Não foi possível marcar o pedido como entregue.");
         }
     };
-
 
     return (
         <CarrinhoContext.Provider
@@ -221,7 +202,7 @@ export const CarrinhoProvider: React.FC<CarrinhoProviderProps> = ({ children }) 
                 getPrecoTotal,
                 finalizarPedido,
                 marcarPedidoComoEntregue,
-                carregarPedidosPendentes: carregarPedidosPendentesDoDB, // <-- DESCOMENTADO E CORRIGIDO AQUI!
+                carregarPedidosPendentes: carregarPedidosPendentesDoDB,
             }}
         >
             {children}

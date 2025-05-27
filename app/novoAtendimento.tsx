@@ -1,87 +1,143 @@
 // app/PedidoScreen.tsx
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Image } from 'react-native';
-import { router } from 'expo-router';
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
 import { styles } from '../style/pedidoStyles';
 import { usePedidoInfo } from '../context/pedidoInfoContext';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// Chave para armazenar as informações do pedido atual no AsyncStorage
-const PEDIDO_ATUAL_INFO_KEY = '@appPedido:pedidoAtualInfo';
+import { useCarrinho } from '../context/CarrinhoContext';
+import appStyles from '../style/appStyles';
 
 export default function PedidoScreen() {
+    const router = useRouter();
+    const { salvarPedidoInfo, atendenteLogado } = usePedidoInfo();
+    const { pedidosPendentes, carregarPedidosPendentes } = useCarrinho();
     const [mesa, setMesa] = useState('');
     const [quantidadePessoas, setQuantidadePessoas] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
 
-    async function montarPedido() {
-        if (mesa === '' || quantidadePessoas === '') {
-            Alert.alert('Erro', 'Por favor, preencha todos os campos!');
+    useEffect(() => {
+        carregarPedidosPendentes();
+    }, []);
+
+    const handleIniciarAtendimento = async () => {
+        if (!mesa || !quantidadePessoas) {
+            Alert.alert('Erro', 'Por favor, preencha todos os campos.');
             return;
         }
 
-        try {
-            const atendenteData = await AsyncStorage.getItem('atendente');
-
-            let n_cracha_atendente = '';
-            let nome_atendente = '';
-
-            if (atendenteData) {
-                const atendente = JSON.parse(atendenteData);
-                n_cracha_atendente = atendente.n_cracha;
-                nome_atendente = atendente.nome;
-            } else {
-                Alert.alert('Erro', 'Nenhum atendente logado. Por favor, faça login novamente.');
-                router.replace('/index');
-                return;
-            }
-
-            const pedidoInfo = {
-                mesa: mesa,
-                quantidadePessoas: parseInt(quantidadePessoas, 10),
-                n_cracha_atendente: n_cracha_atendente,
-                nome_atendente: nome_atendente,
-            };
-
-            // NOVO: Salvar as informações do pedido atual no AsyncStorage
-            await AsyncStorage.setItem(PEDIDO_ATUAL_INFO_KEY, JSON.stringify(pedidoInfo));
-            console.log('Informações do Pedido para iniciar (salvo no Storage):', pedidoInfo);
-
-            Alert.alert('Sucesso', 'Atendimento iniciado para a Mesa ' + mesa);
-
-            // Redireciona para a página principal das abas
-            router.push('/(tabs)');
-
-            setMesa('');
-            setQuantidadePessoas('');
-
-        } catch (error) {
-            console.error('Erro ao montar o pedido:', error);
-            Alert.alert('Erro', 'Não foi possível iniciar o atendimento.');
+        if (!atendenteLogado) {
+            Alert.alert('Erro', 'Nenhum atendente logado. Por favor, faça login novamente.');
+            router.replace('/');
+            return;
         }
-    }
+
+        // Verifica se a mesa já está ocupada
+        const mesaOcupada = pedidosPendentes.some(
+            pedido => pedido.mesa === mesa && 
+            (pedido.status === 'pendente' || pedido.status === 'em preparo')
+        );
+
+        if (mesaOcupada) {
+            Alert.alert(
+                'Mesa Ocupada',
+                'Esta mesa já está em atendimento. Deseja adicionar itens ao pedido existente?',
+                [
+                    {
+                        text: 'Cancelar',
+                        style: 'cancel'
+                    },
+                    {
+                        text: 'Adicionar Itens',
+                        onPress: async () => {
+                            setIsLoading(true);
+                            try {
+                                // Encontra o pedido existente
+                                const pedidoExistente = pedidosPendentes.find(
+                                    p => p.mesa === mesa && 
+                                    (p.status === 'pendente' || p.status === 'em preparo')
+                                );
+
+                                if (pedidoExistente) {
+                                    // Salva as informações do pedido existente
+                                    await salvarPedidoInfo({
+                                        mesa: pedidoExistente.mesa,
+                                        n_cracha_atendente: atendenteLogado.n_cracha,
+                                        nome_atendente: atendenteLogado.nome,
+                                        quantidadePessoas: pedidoExistente.quantidadePessoas
+                                    });
+                                    router.push('/(tabs)');
+                                }
+                            } catch (error) {
+                                console.error('Erro ao adicionar itens:', error);
+                                Alert.alert('Erro', 'Não foi possível adicionar itens ao pedido.');
+                            } finally {
+                                setIsLoading(false);
+                            }
+                        }
+                    }
+                ]
+            );
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            await salvarPedidoInfo({
+                mesa,
+                n_cracha_atendente: atendenteLogado.n_cracha,
+                nome_atendente: atendenteLogado.nome,
+                quantidadePessoas: parseInt(quantidadePessoas)
+            });
+            router.push('/(tabs)');
+        } catch (error) {
+            console.error('Erro ao iniciar atendimento:', error);
+            Alert.alert('Erro', 'Não foi possível iniciar o atendimento.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
     return (
-        <KeyboardAvoidingView style={styles.background}>
-            <View style={styles.container}>
-                <View style={styles.card}>
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Número da Mesa"
-                        value={mesa}
-                        onChangeText={setMesa}
-                        keyboardType="numeric"
-                    />
+        <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.background}
+        >
+            <View style={appStyles.container}>
+                <View style={styles.formContainer}>
+                    <Text style={styles.title}>Novo Atendimento</Text>
+                    
+                    <View style={styles.inputContainer}>
+                        <Text style={styles.label}>Número da Mesa</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={mesa}
+                            onChangeText={setMesa}
+                            keyboardType="number-pad"
+                            placeholder="Digite o número da mesa"
+                        />
+                    </View>
 
-                    <TextInput
-                        style={styles.input}
-                        placeholder="Quantidade de Pessoas"
-                        value={quantidadePessoas}
-                        onChangeText={setQuantidadePessoas}
-                        keyboardType="numeric"
-                    />
+                    <View style={styles.inputContainer}>
+                        <Text style={styles.label}>Quantidade de Pessoas</Text>
+                        <TextInput
+                            style={styles.input}
+                            value={quantidadePessoas}
+                            onChangeText={setQuantidadePessoas}
+                            keyboardType="number-pad"
+                            placeholder="Digite a quantidade de pessoas"
+                        />
+                    </View>
 
-                    <TouchableOpacity style={styles.button} onPress={montarPedido}>
-                        <Text style={styles.buttonText}>Iniciar Atendimento</Text>
+                    <TouchableOpacity
+                        style={[styles.button, isLoading && styles.buttonDisabled]}
+                        onPress={handleIniciarAtendimento}
+                        disabled={isLoading}
+                    >
+                        {isLoading ? (
+                            <ActivityIndicator color="#fff" />
+                        ) : (
+                            <Text style={styles.buttonText}>Iniciar Atendimento</Text>
+                        )}
                     </TouchableOpacity>
                 </View>
             </View>

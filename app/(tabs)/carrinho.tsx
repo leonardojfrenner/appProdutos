@@ -1,35 +1,17 @@
 // app/carrinho.tsx
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, StyleSheet, SafeAreaView, TouchableOpacity, Alert } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCarrinho, PedidoCompleto } from '../../context/CarrinhoContext'; // Importe PedidoCompleto também
+import { View, Text, FlatList, StyleSheet, SafeAreaView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useCarrinho } from '../../context/CarrinhoContext';
 import { usePedidoInfo } from '../../context/pedidoInfoContext';
-import CarrinhoItemCard from '../../comp/item'; // Certifique-se que o nome do componente é CarrinhoItemCard
+import CarrinhoItemCard from '../../comp/item';
 import appStyles from '../../style/appStyles';
 
 const CarrinhoPage = () => {
     const router = useRouter();
-    // REMOVIDO: const { n_cracha_atendente, nome_atendente, mesa, quantidadePessoas } = useLocalSearchParams();
-
-    // NOVO: Use o hook do PedidoInfoContext
     const { pedidoAtualInfo, limparPedidoInfo } = usePedidoInfo();
     const { carrinho, getTotalItens, getPrecoTotal, limparCarrinho, finalizarPedido } = useCarrinho();
-
-    const [pedidoInfoDisplay, setPedidoInfoDisplay] = useState('');
-
-    useEffect(() => {
-        // Agora, pegue as informações do pedido do PedidoInfoContext
-        if (pedidoAtualInfo) {
-            setPedidoInfoDisplay(
-                `Mesa: ${pedidoAtualInfo.mesa} | Atendente: ${pedidoAtualInfo.nome_atendente} (Crachá: ${pedidoAtualInfo.n_cracha_atendente})\n` +
-                `Pessoas na mesa: ${pedidoAtualInfo.quantidadePessoas}`
-            );
-        } else {
-            setPedidoInfoDisplay('Informações do pedido não disponíveis. Inicie um novo atendimento.');
-            // Opcional: redirecionar para a tela de iniciar pedido se não houver info
-            // router.replace('/PedidoScreen');
-        }
-    }, [pedidoAtualInfo]); // Depende do pedidoAtualInfo
+    const [isLoading, setIsLoading] = useState(false);
 
     const handleFinalizarPedido = async () => {
         if (carrinho.length === 0) {
@@ -42,39 +24,31 @@ const CarrinhoPage = () => {
             return;
         }
 
-        const dadosIniciaisPedido = {
-            mesa: pedidoAtualInfo.mesa,
-            n_cracha_atendente: pedidoAtualInfo.n_cracha_atendente,
-            nome_atendente: pedidoAtualInfo.nome_atendente,
-            quantidadePessoas: pedidoAtualInfo.quantidadePessoas,
-        };
+        setIsLoading(true);
+        try {
+            const dadosIniciaisPedido = {
+                mesa: pedidoAtualInfo.mesa,
+                n_cracha_atendente: pedidoAtualInfo.n_cracha_atendente,
+                nome_atendente: pedidoAtualInfo.nome_atendente,
+                quantidadePessoas: pedidoAtualInfo.quantidadePessoas,
+            };
 
-        // Chama a função do contexto para persistir no AsyncStorage de pedidos pendentes
-        const sucesso = await finalizarPedido(dadosIniciaisPedido);
+            const sucesso = await finalizarPedido(dadosIniciaisPedido);
 
-        if (sucesso) {
-            // Se persistido com sucesso no AsyncStorage, agora salva no SQLite
-            // ATENÇÃO: O `finalizarEPersistirPedido` cria o PedidoCompleto completo e o salva no estado `pedidosPendentes`.
-            // Para salvá-lo no SQLite, você precisaria ter acesso a esse `novoPedido` que foi criado.
-            // Uma opção é fazer o `insertPedido` DENTRO do `finalizarEPersistirPedido` no `CarrinhoContext`.
-            // Ou, para simplicidade, você pode chamar `insertPedido` aqui, mas recriando o objeto para o SQLite
-            // baseado nos dados do `pedidoAtualInfo` e no carrinho que acabou de ser limpo.
-            // A melhor prática é fazer o salvamento no DB no `CarrinhoContext` ao persistir o pedido.
+            if (sucesso) {
+                Alert.alert(
+                    "Pedido Concluído!",
+                    `Pedido para Mesa ${pedidoAtualInfo.mesa} adicionado ao histórico de pendentes.\n\nValor: R$ ${getPrecoTotal().toFixed(2).replace('.', ',')}`
+                );
 
-            // Vamos ajustar o `CarrinhoContext.tsx` para chamar `insertPedido` lá,
-            // para que o pedido seja salvo no DB no mesmo momento em que é adicionado ao histórico pendente.
-            // Por enquanto, apenas um alerta e redirecionamento, pois a lógica de DB será no contexto.
-            Alert.alert(
-                "Pedido Concluído!",
-                `Pedido para Mesa ${pedidoAtualInfo.mesa} adicionado ao histórico de pendentes.\n\nValor: R$ ${getPrecoTotal().toFixed(2).replace('.', ',')}`
-            );
-
-            // Limpar as informações do pedido atual do AsyncStorage, pois o atendimento dessa mesa foi "finalizado"
-            // e movido para o histórico de pendentes.
-            await limparPedidoInfo();
-
-            // Redireciona para o histórico de pendentes
-            router.replace('/historicoPendente');
+                await limparPedidoInfo();
+                router.replace('/historicoPendente');
+            }
+        } catch (error) {
+            console.error("Erro ao finalizar pedido:", error);
+            Alert.alert("Erro", "Não foi possível finalizar o pedido.");
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -82,43 +56,63 @@ const CarrinhoPage = () => {
         <SafeAreaView style={appStyles.container}>
             <View style={styles.headerContainer}>
                 <Text style={styles.pageTitle}>Seu Pedido</Text>
-                {pedidoInfoDisplay ? (
-                    <Text style={styles.pedidoInfoText}>{pedidoInfoDisplay}</Text>
+                {pedidoAtualInfo ? (
+                    <View style={styles.pedidoInfoContainer}>
+                        <Text style={styles.pedidoInfoText}>
+                            Mesa: {pedidoAtualInfo.mesa}
+                        </Text>
+                        <Text style={styles.pedidoInfoText}>
+                            Atendente: {pedidoAtualInfo.nome_atendente}
+                        </Text>
+                        <Text style={styles.pedidoInfoText}>
+                            Pessoas: {pedidoAtualInfo.quantidadePessoas}
+                        </Text>
+                    </View>
                 ) : (
-                    <Text style={styles.pedidoInfoText}>Carregando informações do pedido...</Text>
+                    <Text style={styles.pedidoInfoText}>
+                        Informações do pedido não disponíveis. Inicie um novo atendimento.
+                    </Text>
                 )}
             </View>
 
             {carrinho.length === 0 ? (
                 <View style={styles.emptyCartContainer}>
-                    <Text style={styles.emptyCartText}>Seu carrinho está vazio. Adicione alguns itens!</Text>
+                    <Text style={styles.emptyCartText}>
+                        Seu carrinho está vazio. Adicione alguns itens!
+                    </Text>
                 </View>
             ) : (
-                <FlatList
-                    data={carrinho}
-                    keyExtractor={(item, index) => `${item.id}-${item.tipo}-${item.observacao || 'no-obs'}-${item.bordaRecheada || 'no-borda'}-${JSON.stringify(item.adicionaisSelecionados) || 'no-add'}-${index}`}
-                    renderItem={({ item }) => (
-                        <CarrinhoItemCard
-                            item={item}
-                        />
-                    )}
-                    contentContainerStyle={styles.listContent}
-                />
-            )}
-
-            {carrinho.length > 0 && (
-                <View style={styles.footerContainer}>
-                    <Text style={styles.totalText}>Total de Itens: {getTotalItens()}</Text>
-                    <Text style={styles.totalText}>Valor Total: R$ {getPrecoTotal().toFixed(2).replace('.', ',')}</Text>
-
-                    <TouchableOpacity style={styles.checkoutButton} onPress={handleFinalizarPedido}>
-                        <Text style={styles.checkoutButtonText}>Finalizar Pedido</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={styles.clearCartButton} onPress={() => Alert.alert('Limpar Carrinho', 'Tem certeza que deseja limpar todo o carrinho?', [{ text: 'Não' }, { text: 'Sim', onPress: limparCarrinho }])}>
-                        <Text style={styles.clearCartButtonText}>Limpar Carrinho</Text>
-                    </TouchableOpacity>
-                </View>
+                <>
+                    <FlatList
+                        data={carrinho}
+                        keyExtractor={(item, index) => `${item.id}-${item.tipo}-${index}`}
+                        renderItem={({ item }) => <CarrinhoItemCard item={item} />}
+                        contentContainerStyle={styles.listContent}
+                    />
+                    
+                    <View style={styles.footerContainer}>
+                        <View style={styles.totalContainer}>
+                            <Text style={styles.totalText}>
+                                Total: R$ {getPrecoTotal().toFixed(2).replace('.', ',')}
+                            </Text>
+                            <Text style={styles.itemsCount}>
+                                {getTotalItens()} {getTotalItens() === 1 ? 'item' : 'itens'}
+                            </Text>
+                        </View>
+                        
+                        <TouchableOpacity 
+                            style={[styles.finishButton, isLoading && styles.finishButtonDisabled]}
+                            onPress={handleFinalizarPedido}
+                            disabled={isLoading}
+                        >
+                            {isLoading ? (
+                                <ActivityIndicator color="#fff" />
+                            ) : (
+                                <Text style={styles.finishButtonText}>Finalizar Pedido</Text>
+                            )}
+                        </TouchableOpacity>
+                    </View>
+                </>
             )}
         </SafeAreaView>
     );
@@ -126,71 +120,69 @@ const CarrinhoPage = () => {
 
 const styles = StyleSheet.create({
     headerContainer: {
-        padding: 15,
-        backgroundColor: '#f0f0f0',
+        padding: 16,
+        backgroundColor: '#fff',
         borderBottomWidth: 1,
-        borderBottomColor: '#ddd',
-        alignItems: 'center',
+        borderBottomColor: '#eee',
     },
     pageTitle: {
         fontSize: 24,
         fontWeight: 'bold',
-        marginBottom: 10,
-        color: '#333',
+        marginBottom: 8,
+    },
+    pedidoInfoContainer: {
+        backgroundColor: '#f8f9fa',
+        padding: 12,
+        borderRadius: 8,
     },
     pedidoInfoText: {
-        fontSize: 16,
-        color: '#555',
-        textAlign: 'center',
-        marginBottom: 5,
+        fontSize: 14,
+        color: '#666',
+        marginBottom: 4,
     },
     emptyCartContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
+        padding: 20,
     },
     emptyCartText: {
-        fontSize: 18,
-        color: '#777',
+        fontSize: 16,
+        color: '#666',
         textAlign: 'center',
     },
     listContent: {
-        paddingVertical: 10,
-        paddingHorizontal: 5,
+        padding: 12,
     },
     footerContainer: {
-        padding: 15,
-        backgroundColor: '#f0f0f0',
+        backgroundColor: '#fff',
+        padding: 16,
         borderTopWidth: 1,
-        borderTopColor: '#ddd',
-        alignItems: 'center',
+        borderTopColor: '#eee',
+    },
+    totalContainer: {
+        marginBottom: 16,
     },
     totalText: {
         fontSize: 20,
         fontWeight: 'bold',
-        color: '#007bff',
-        marginBottom: 10,
+        color: '#007AFF',
     },
-    checkoutButton: {
-        backgroundColor: '#28a745',
-        paddingVertical: 12,
-        paddingHorizontal: 30,
-        borderRadius: 25,
-        marginTop: 15,
+    itemsCount: {
+        fontSize: 14,
+        color: '#666',
+        marginTop: 4,
     },
-    checkoutButtonText: {
-        color: '#fff',
-        fontSize: 18,
-        fontWeight: 'bold',
+    finishButton: {
+        backgroundColor: '#007AFF',
+        padding: 16,
+        borderRadius: 8,
+        alignItems: 'center',
     },
-    clearCartButton: {
-        backgroundColor: '#dc3545',
-        paddingVertical: 10,
-        paddingHorizontal: 20,
-        borderRadius: 20,
-        marginTop: 10,
+    finishButtonDisabled: {
+        opacity: 0.7,
     },
-    clearCartButtonText: {
+    finishButtonText: {
         color: '#fff',
         fontSize: 16,
         fontWeight: 'bold',
